@@ -3,13 +3,16 @@
 namespace Chaungoclong\Container;
 
 use Chaungoclong\Container\Exceptions\BindingResolutionException;
+use Chaungoclong\Container\Exceptions\EntryNotFoundException;
 use Closure;
+use Exception;
+use Psr\Container\ContainerInterface;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionNamedType;
 use ReflectionParameter;
 
-class Container
+class Container implements ContainerInterface
 {
     /**
      * @var Container|null Singleton instance of Container
@@ -18,13 +21,13 @@ class Container
 
     /**
      * @var array The Container's bindings(bind abstract to concrete class)
-     * structure:
-     * [
-     *  'abstract' => [
+     *      structure:
+     *      [
+     *      'abstract' => [
      *      'concrete' => Closure|string|NULL
      *      'singleton' => bool
-     *  ]
-     * ]
+     *      ]
+     *      ]
      */
     private array $bindings = [];
 
@@ -44,6 +47,7 @@ class Container
 
     /**
      * Get singleton instance of Container
+     *
      * @return Container
      */
     public static function getInstance(): Container
@@ -57,23 +61,27 @@ class Container
 
     /**
      * Bind abstract with concrete class
+     *
      * @param string $abstract
-     * @param mixed $concrete
-     * @param bool $singleton
+     * @param mixed  $concrete
+     * @param bool   $singleton
+     *
      * @return void
      */
     public function bind(string $abstract, $concrete, bool $singleton = false): void
     {
         $this->bindings[$abstract] = [
-            'concrete' => $concrete,
+            'concrete'  => $concrete,
             'singleton' => $singleton
         ];
     }
 
     /**
      * Bind abstract with singleton concrete class
+     *
      * @param string $abstract
-     * @param mixed $concrete
+     * @param mixed  $concrete
+     *
      * @return void
      */
     public function singleton(string $abstract, $concrete = null): void
@@ -83,8 +91,10 @@ class Container
 
     /**
      * Bind abstract with instance
+     *
      * @param string $abstract
-     * @param mixed $instance
+     * @param mixed  $instance
+     *
      * @return void
      */
     public function instance(string $abstract, $instance): void
@@ -98,8 +108,10 @@ class Container
 
     /**
      * Get instance of concrete class of abstract
+     *
      * @param string $abstract
-     * @param array $overrideParameters
+     * @param array  $overrideParameters
+     *
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -138,7 +150,9 @@ class Container
 
     /**
      * Instantiate a concrete instance of the given abstract.
+     *
      * @param mixed $concrete
+     *
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -165,7 +179,7 @@ class Container
         }
 
         // Get parameters of constructor
-        $parameters = $constructor->getParameters();
+        $parameters   = $constructor->getParameters();
         $dependencies = $this->resolveDependencies($parameters);
 
         try {
@@ -177,7 +191,9 @@ class Container
 
     /**
      * Resolve all the dependencies from parameters of constructor of concrete class.
+     *
      * @param ReflectionParameter[] $parameters
+     *
      * @return array
      * @throws BindingResolutionException
      */
@@ -208,6 +224,7 @@ class Container
 
     /**
      * Get the override parameter corresponding to the recursive level of resolve method
+     *
      * @return array
      */
     private function getLastParametersOverride(): array
@@ -217,7 +234,9 @@ class Container
 
     /**
      * Check parameter has override value
+     *
      * @param ReflectionParameter $parameter
+     *
      * @return bool
      */
     private function hasOverrideParameter(ReflectionParameter $parameter): bool
@@ -227,7 +246,9 @@ class Container
 
     /**
      * Get override value of parameter if exists
+     *
      * @param ReflectionParameter $parameter
+     *
      * @return mixed
      */
     private function getOverrideParameter(ReflectionParameter $parameter)
@@ -237,8 +258,10 @@ class Container
 
     /**
      * Alias of resolve
+     *
      * @param string $abstract
-     * @param array $parameters
+     * @param array  $parameters
+     *
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -249,7 +272,9 @@ class Container
 
     /**
      * Get class name of parameter
+     *
      * @param ReflectionParameter $parameter
+     *
      * @return string|null null if it not has a class name
      */
     private function getParameterClassName(ReflectionParameter $parameter): ?string
@@ -282,6 +307,7 @@ class Container
 
     /**
      * Resolve primitive dependency
+     *
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -302,6 +328,7 @@ class Container
 
     /**
      * Resolve a dependency whose type is class
+     *
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -319,5 +346,50 @@ class Container
 
             throw $e;
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function get(string $id)
+    {
+        try {
+            return $this->resolve($id);
+        } catch (Exception $e) {
+            if ($this->has($id)) {
+                throw $e;
+            }
+
+            throw new EntryNotFoundException($id, $e->getCode(), $e);
+        }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function has(string $id): bool
+    {
+        return isset($this->bindings[$id]) || isset($this->instances[$id]);
+    }
+
+    /**
+     * Get the container's bindings.
+     *
+     * @return array
+     */
+    public function getBindings(): array
+    {
+        return $this->bindings;
+    }
+
+    /**
+     * Flush the container of all bindings and resolved instances.
+     *
+     * @return void
+     */
+    public function flush(): void
+    {
+        $this->bindings  = [];
+        $this->instances = [];
     }
 }

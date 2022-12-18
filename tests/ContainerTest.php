@@ -5,6 +5,8 @@ namespace Chaungoclong\Container\Tests;
 use Chaungoclong\Container\Container;
 use Chaungoclong\Container\Exceptions\BindingResolutionException;
 use PHPUnit\Framework\TestCase;
+use Psr\Container\ContainerExceptionInterface;
+use Psr\Container\NotFoundExceptionInterface;
 
 class ContainerTest extends TestCase
 {
@@ -17,28 +19,55 @@ class ContainerTest extends TestCase
         $this->container = Container::getInstance();
     }
 
-
     /**
-     * Test Container instance is singleton
-     * @return void
+     * @throws ContainerExceptionInterface
+     * @throws NotFoundExceptionInterface
      */
-    public function testGetInstance(): void
+    public function testBindWithZeroConfiguration(): void
     {
-        $container1 = Container::getInstance();
-        $container2 = Container::getInstance();
-
-        $this->assertEquals($container1, $container2);
-    }
-
-    /**
-     * @throws BindingResolutionException
-     */
-    public function testBind(): void
-    {
-        $this->container->bind(Bar::class, Bar::class);
-        $bar = $this->container->resolve(Bar::class);
+        $bar = $this->container->get(Bar::class);
         $this->assertInstanceOf(Bar::class, $bar);
     }
 
+    protected function tearDown(): void
+    {
+        parent::tearDown();
 
+        $this->container = Container::getInstance();
+    }
+}
+
+interface FooInterface
+{
+    public function fooMethod(): void;
+}
+
+class Foo implements FooInterface
+{
+    private Zoo $zoo;
+
+    public function __construct(Zoo $zoo)
+    {
+        $this->zoo = $zoo;
+    }
+
+    public function fooMethod(): void
+    {
+        // TODO: Implement fooMethod() method.
+    }
+}
+
+class Zoo
+{
+
+}
+
+class Bar
+{
+    private Foo $foo;
+
+    public function __construct(Foo $foo)
+    {
+        $this->foo = $foo;
+    }
 }
