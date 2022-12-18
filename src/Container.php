@@ -12,235 +12,256 @@ use ReflectionParameter;
 class Container
 {
     /**
-     * @var Container|null instance of Container
+     * @var Container|null Singleton instance of Container
      */
     private static ?Container $instance = null;
 
     /**
-     * @var array bind abstract to concrete
-     *                  [
-     *                  'abstract' => [
-     *                  'concrete' => 'Closure|null|string',
-     *                  'shared' => 'TRUE|FALSE',
-     *                  'context' => [
-     *                  'abstract' => 'concrete'
-     *                  ]
-     *                  ]
-     *                  ]
+     * @var array The Container's bindings(bind abstract to concrete class)
+     * structure:
+     * [
+     *  'abstract' => [
+     *      'concrete' => Closure|string|NULL
+     *      'singleton' => bool
+     *  ]
+     * ]
      */
     private array $bindings = [];
 
     /**
-     * @var object[] store instance of singleton concrete
-     *            structure:
-     *            ['abstract' => instance of singleton concrete]
+     * @var object[] The instances of singleton concrete class
      */
     private array $instances = [];
 
     /**
-     * @var array The parameter override stack:when resolve a class instance sometime we want to override some
-     *      dependencies of this class this array store those dependencies
+     * @var array Parameters used to override default dependencies
      */
-    private array $with = [];
-
-    /**
-     * @var array The
-     */
-    private array $contextual = [];
-
-    /**
-     * @var array The stack of concretions currently being built.
-     */
-    private array $buildStack = [];
+    private array $overrideParameters = [];
 
     private function __construct()
     {
     }
 
     /**
-     * bind abstract id to concrete
-     *
-     * @param string              $id       abstract id of abstract(abstract class, interface, class, any string)
-     * @param string|Closure|null $concrete concrete class that will be instantiated
-     * @param bool                $shared   true if the concrete is singleton
-     *
+     * Get singleton instance of Container
+     * @return Container
+     */
+    public static function getInstance(): Container
+    {
+        if (is_null(static::$instance)) {
+            static::$instance = new Container();
+        }
+
+        return static::$instance;
+    }
+
+    /**
+     * Bind abstract with concrete class
+     * @param string $abstract
+     * @param mixed $concrete
+     * @param bool $singleton
      * @return void
      */
-    public function bind(string $id, $concrete, bool $shared = false): void
+    public function bind(string $abstract, $concrete, bool $singleton = false): void
     {
-        $this->bindings[$id] = [
+        $this->bindings[$abstract] = [
             'concrete' => $concrete,
-            'shared' => $shared
+            'singleton' => $singleton
         ];
     }
 
     /**
-     * bind abstract id to singleton concrete
-     *
-     * @param string              $id       abstract id of abstract(abstract class, interface, class, any string)
-     * @param string|Closure|null $concrete concrete class that will be instantiated
-     *
+     * Bind abstract with singleton concrete class
+     * @param string $abstract
+     * @param mixed $concrete
      * @return void
      */
-    public function singleton(string $id, $concrete = null): void
+    public function singleton(string $abstract, $concrete = null): void
     {
-        $this->bind($id, $concrete, true);
+        $this->bind($abstract, $concrete, true);
     }
 
     /**
-     * make instance of concrete of abstract id
-     *
+     * Bind abstract with instance
      * @param string $abstract
-     * @param array  $parameters
-     *
+     * @param mixed $instance
+     * @return void
+     */
+    public function instance(string $abstract, $instance): void
+    {
+        if (is_object($instance)) {
+            $this->instances[$abstract] = $instance;
+        } else {
+            $this->singleton($abstract, $instance);
+        }
+    }
+
+    /**
+     * Get instance of concrete class of abstract
+     * @param string $abstract
+     * @param array $overrideParameters
      * @return mixed
      * @throws BindingResolutionException
-     * @throws ReflectionException
      */
-    public function resolve(string $abstract, array $parameters = [])
+    public function resolve(string $abstract, array $overrideParameters = [])
     {
-        // return instance of concrete if it already exists
-        if (isset($this->instance[$abstract])) {
-            return $this->instance[$abstract];
+        // Return singleton instance of concrete class if it already exists
+        if (isset($this->instances[$abstract])) {
+            return $this->instances[$abstract];
         }
 
-        $this->with[] = $parameters;
+        // Set override parameters
+        // I don't want to pass this parameter a lot of time to multiple methods, So I make it as a class property
+        // This is array of array because resolve is recurves method
+        $this->overrideParameters[] = $overrideParameters;
 
-        // get concrete class of abstract id
+        // Get concrete of abstract
         $concrete = $this->bindings[$abstract] ?? $abstract;
 
-        // if concrete is Closure or concrete equals to abstract id then build a new instance from concrete
-        // else if concrete is string and concrete not equals to abstract id then build a new instance from concrete of concrete
-        // (now concrete is abstract)
+        // If concrete is a Closure, or it is abstract, I will try to instantiate it.
+        // Otherwise, the concrete must be referencing something else,
+        // So we'll recursively resolve it until we get either a singleton instance, a closure,
+        // or run out of references(when the concrete is equivalent to the abstract).
+        // After that, I will try to instantiate last reference.
         if ($concrete instanceof Closure || $concrete === $abstract) {
-            $instance = $this->build($concrete);
+            $object = $this->build($concrete);
         } else {
-            $instance = $this->make($concrete);
+            $object = $this->make($concrete);
         }
 
-        // if concrete is singleton then store it to $instances
-        if (isset($this->bindings[$abstract]) && $this->bindings[$abstract]['shared']) {
-            $this->instances[$abstract] = $instance;
-        }
+        // After resolve instance of concrete class of the abstract,
+        // I remove the override parameter to be ready for the next call
+        array_pop($this->overrideParameters);
 
-        array_pop($this->with);
-
-        return $instance;
+        return $object;
     }
 
     /**
+     * Instantiate a concrete instance of the given abstract.
+     * @param mixed $concrete
      * @return mixed
      * @throws BindingResolutionException
-     * @throws ReflectionException
-     */
-    public function makeWith($abstract, array $parameters = [])
-    {
-        return $this->make($abstract, $parameters);
-    }
-
-    /**
-     * @param       $concrete
-     * @param array $parameters
-     *
-     * @return mixed
-     * @throws BindingResolutionException|ReflectionException
-     */
-    private function make($concrete, array $parameters = [])
-    {
-        return $this->resolve($concrete, $parameters);
-    }
-
-    /**
-     * @param Closure|string $concrete
-     *
-     * @return mixed
-     * @throws BindingResolutionException
-     * @throws ReflectionException
      */
     private function build($concrete)
     {
-        // if the concrete type is actually a Closure, we will just execute it
+        // If concrete is Closure then execute it to instantiate a concrete instance of the abstract
         if ($concrete instanceof Closure) {
-            return $concrete($this, $this->getLastParameterOverride());
+            return $concrete($this, $this->overrideParameters);
         }
 
-        // init reflector of concrete
+        // Try init reflector of concrete
         try {
             $reflector = new ReflectionClass($concrete);
         } catch (ReflectionException $e) {
             throw new BindingResolutionException("Target class [$concrete] does not exist.", 0, $e);
         }
 
-        // check concrete can instantiable(Ex: interface cannot instantiable)
-        if (!$reflector->isInstantiable()) {
-            throw new BindingResolutionException("Target [$concrete] is not instantiable.");
-        }
-
-        $this->buildStack[] = $concrete;
-
-        // get constructor of concrete
+        // Get constructor of concrete class
         $constructor = $reflector->getConstructor();
+
+        // If the concrete class has no constructor then return its new instance
         if (is_null($constructor)) {
             return new $concrete();
         }
 
-        // get parameters of constructor(dependencies of concrete class)
-        $dependencies = $constructor->getParameters();
-        $instanceArguments = $this->resolveDependencies($dependencies);
+        // Get parameters of constructor
+        $parameters = $constructor->getParameters();
+        $dependencies = $this->resolveDependencies($parameters);
 
-        array_pop($this->buildStack);
-
-        return $reflector->newInstanceArgs($instanceArguments);
+        try {
+            return $reflector->newInstanceArgs($dependencies);
+        } catch (ReflectionException $e) {
+            throw new BindingResolutionException("Cannot instantiate");
+        }
     }
 
-
     /**
-     * @param array $dependencies
-     *
+     * @param ReflectionParameter[] $parameters
      * @return array
      * @throws BindingResolutionException
      */
-    private function resolveDependencies(array $dependencies): array
+    private function resolveDependencies(array $parameters): array
     {
-        $results = [];
+        $dependencies = [];
 
-        foreach ($dependencies as $dependency) {
-            // if the dependency has an override for itself then use override value
-            if ($this->hasParameterOverride($dependency)) {
-                $results[] = $this->getParameterOverride($dependency);
+        foreach ($parameters as $parameter) {
+            if ($this->hasOverrideParameter($parameter)) {
+                $dependencies[] = $this->getOverrideParameter($parameter);
 
                 continue;
             }
 
-            $result = is_null($this->getParameterClassName($dependency))
-                ? $this->resolvePrimitive($dependency)
-                : $this->resolveClass($dependency);
+            $dependency = is_null($this->getParameterClassName($parameter))
+                ? $this->resolvePrimitive($parameter)
+                : $this->resolveClass($parameter);
 
-            if ($dependency->isVariadic()) {
-                $results = [...$results, $result];
-            } else {
-                $results[] = $result;
-            }
+            $dependencies[] = $dependency;
         }
 
-        return $results;
+        return $dependencies;
     }
 
     /**
-     * @param ReflectionParameter $parameter
-     *
-     * @return string|null
+     * Get the override parameter corresponding to the recursive level of resolve method
+     * @return array
      */
-    protected function getParameterClassName(ReflectionParameter $parameter): ?string
+    private function getLastParametersOverride(): array
     {
+        return count($this->overrideParameters) ? end($this->overrideParameters) : [];
+    }
+
+    /**
+     * Check parameter has override value
+     * @param ReflectionParameter $parameter
+     * @return bool
+     */
+    private function hasOverrideParameter(ReflectionParameter $parameter): bool
+    {
+        return array_key_exists($parameter->name, $this->getLastParametersOverride());
+    }
+
+    /**
+     * Get override value of parameter if exists
+     * @param ReflectionParameter $parameter
+     * @return mixed
+     */
+    private function getOverrideParameter(ReflectionParameter $parameter)
+    {
+        return $this->getLastParametersOverride()[$parameter->name];
+    }
+
+    /**
+     * Alias of resolve
+     * @param $abstract
+     * @param array $parameters
+     * @return mixed
+     * @throws BindingResolutionException
+     */
+    public function make($abstract, array $parameters = [])
+    {
+        return $this->resolve($abstract, $parameters);
+    }
+
+    /**
+     * Get class name of parameter
+     * @param ReflectionParameter $parameter
+     * @return string|null null if it not has a class name
+     */
+    private function getParameterClassName(ReflectionParameter $parameter): ?string
+    {
+        // Parameter's type
         $type = $parameter->getType();
 
+        // If parameter's type is builtin type(string, int ...) or it not instanceof ReflectionNamedType return null
         if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
             return null;
         }
 
+        // Type's name
         $name = $type->getName();
 
+        // If the parameter is declared in the class and the name of the type is 'self' or 'parent'
+        // then get the name of the corresponding class
         if (!is_null($class = $parameter->getDeclaringClass())) {
             if ($name === 'self') {
                 return $class->getName();
@@ -255,66 +276,40 @@ class Container
     }
 
     /**
-     * @param $parameter
-     *
      * @return mixed
      * @throws BindingResolutionException
      */
-    private function resolvePrimitive($parameter)
+    private function resolvePrimitive(ReflectionParameter $parameter)
     {
         if ($parameter->isDefaultValueAvailable()) {
             return $parameter->getDefaultValue();
         }
 
-        $message = "Unresolvable dependency resolving [$parameter] in class {$parameter->getDeclaringClass()->getName()}";
+        if (!is_null($class = $parameter->getDeclaringClass())) {
+            $message = "Unresolvable dependency resolving [$parameter] in class {$class->getName()}";
+        } else {
+            $message = "Parameter {$parameter} is not declared in class";
+        }
 
         throw new BindingResolutionException($message);
     }
 
     /**
-     * @param ReflectionParameter $parameter
-     *
-     * @return mixed
+     * @throws BindingResolutionException
      */
     private function resolveClass(ReflectionParameter $parameter)
     {
         try {
-            return $parameter->isVariadic()
-                ? $this->resolveVariadicClass($parameter)
-                : $this->make($parameter);
-        } catch (BindingResolutionException|ReflectionException $e) {
+            return $this->make($this->getParameterClassName($parameter));
+        } catch (BindingResolutionException $e) {
+            if ($parameter->isDefaultValueAvailable()) {
+                // When call make in try $this->overrideParameters is pushed so we need pop it if false
+                array_pop($this->overrideParameters);
+
+                return $parameter->getDefaultValue();
+            }
+
+            throw $e;
         }
-    }
-
-    private function resolveVariadicClass(ReflectionParameter $parameter)
-    {
-    }
-
-    /**
-     * @return array
-     */
-    private function getLastParameterOverride(): array
-    {
-        return count($this->with) ? end($this->with) : [];
-    }
-
-    /**
-     * @param $dependency
-     *
-     * @return bool
-     */
-    private function hasParameterOverride($dependency): bool
-    {
-        return array_key_exists($dependency->name, $this->getLastParameterOverride());
-    }
-
-    /**
-     * @param ReflectionParameter $parameter
-     *
-     * @return mixed
-     */
-    private function getParameterOverride(ReflectionParameter $dependency)
-    {
-        return $this->getLastParameterOverride()[$dependency->name];
     }
 }

@@ -1,20 +1,28 @@
 {
-    "name": "chaungoclong/phpcontainer",
-    "description": "simple php service container",
-    "type": "library",
-    "license": "MIT",
-    "autoload": {
-        "psr-4": {
-            "Chaungoclong\\Container\\": "src/"
-        }
-    },
-    "authors": [
-        {
-            "name": "Dragon",
-            "email": "longcn@beetsoft.com.vn"
-        }
-    ],
-    "require": {
-        "psr/container": "^2.0"
+  "name": "chaungoclong/phpcontainer",
+  "description": "simple php service container",
+  "type": "library",
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "Chaungoclong\\Container\\": "src/"
     }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Chaungoclong\\Container\\Tests\\": "tests"
+    }
+  },
+  "authors": [
+    {
+      "name": "Dragon",
+      "email": "longcn@beetsoft.com.vn"
+    }
+  ],
+  "require": {
+    "psr/container": "^2.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9"
+  }
 }
