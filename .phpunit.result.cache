@@ -1,1 +1,1 @@
-{"version":1,"defects":[],"times":{"Chaungoclong\\Container\\Tests\\ContainerTest::testSingletonInstance":0.002,"Chaungoclong\\Container\\Tests\\ContainerTest::testGetInstance":0.003}}
+{"version":1,"defects":{"Chaungoclong\\Container\\Tests\\ContainerTest::testBind":4},"times":{"Chaungoclong\\Container\\Tests\\ContainerTest::testSingletonInstance":0.002,"Chaungoclong\\Container\\Tests\\ContainerTest::testGetInstance":0.002,"Chaungoclong\\Container\\Tests\\ContainerTest::testBind":0.006}}

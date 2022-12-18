@@ -116,7 +116,7 @@ class Container
         $this->overrideParameters[] = $overrideParameters;
 
         // Get concrete of abstract
-        $concrete = $this->bindings[$abstract] ?? $abstract;
+        $concrete = $this->bindings[$abstract]['concrete'] ?? $abstract;
 
         // If concrete is a Closure, or it is abstract, I will try to instantiate it.
         // Otherwise, the concrete must be referencing something else,
@@ -176,6 +176,7 @@ class Container
     }
 
     /**
+     * Resolve all the dependencies from parameters of constructor of concrete class.
      * @param ReflectionParameter[] $parameters
      * @return array
      * @throws BindingResolutionException
@@ -185,12 +186,16 @@ class Container
         $dependencies = [];
 
         foreach ($parameters as $parameter) {
+            // If the parameter has an overridden value, use the overridden value for dependency
             if ($this->hasOverrideParameter($parameter)) {
                 $dependencies[] = $this->getOverrideParameter($parameter);
 
                 continue;
             }
 
+            // If class name of parameter is null -> type of parameter is primitive(string, int ..)
+            // -> can not resolve(can only use default value if exists or throw exception)
+            // Otherwise, resolve dependency from parameter
             $dependency = is_null($this->getParameterClassName($parameter))
                 ? $this->resolvePrimitive($parameter)
                 : $this->resolveClass($parameter);
@@ -232,12 +237,12 @@ class Container
 
     /**
      * Alias of resolve
-     * @param $abstract
+     * @param string $abstract
      * @param array $parameters
      * @return mixed
      * @throws BindingResolutionException
      */
-    public function make($abstract, array $parameters = [])
+    public function make(string $abstract, array $parameters = [])
     {
         return $this->resolve($abstract, $parameters);
     }
@@ -276,6 +281,7 @@ class Container
     }
 
     /**
+     * Resolve primitive dependency
      * @return mixed
      * @throws BindingResolutionException
      */
@@ -288,13 +294,15 @@ class Container
         if (!is_null($class = $parameter->getDeclaringClass())) {
             $message = "Unresolvable dependency resolving [$parameter] in class {$class->getName()}";
         } else {
-            $message = "Parameter {$parameter} is not declared in class";
+            $message = "Parameter $parameter is not declared in class";
         }
 
         throw new BindingResolutionException($message);
     }
 
     /**
+     * Resolve a dependency whose type is class
+     * @return mixed
      * @throws BindingResolutionException
      */
     private function resolveClass(ReflectionParameter $parameter)
@@ -303,7 +311,7 @@ class Container
             return $this->make($this->getParameterClassName($parameter));
         } catch (BindingResolutionException $e) {
             if ($parameter->isDefaultValueAvailable()) {
-                // When call make in try $this->overrideParameters is pushed so we need pop it if false
+                // When call make in try $this->overrideParameters is pushed, so we need pop it if occur exception
                 array_pop($this->overrideParameters);
 
                 return $parameter->getDefaultValue();
