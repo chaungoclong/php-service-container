@@ -6,9 +6,11 @@ use Chaungoclong\Container\Exceptions\BindingResolutionException;
 use Chaungoclong\Container\Exceptions\EntryNotFoundException;
 use Closure;
 use Exception;
+use InvalidArgumentException;
 use Psr\Container\ContainerInterface;
 use ReflectionClass;
 use ReflectionException;
+use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
 
@@ -141,6 +143,13 @@ class Container implements ContainerInterface
             $object = $this->make($concrete);
         }
 
+        // If the abstract is registered as a singleton,
+        // I will store its instance into the instances array so that I can return it without creating a new instance next time
+        if (isset($this->instances[$abstract]) ||
+            (isset($this->bindings[$abstract]['singleton']) && $this->bindings[$abstract]['singleton'] === true)) {
+            $this->instances[$abstract] = $object;
+        }
+
         // After resolve instance of concrete class of the abstract,
         // I remove the override parameter to be ready for the next call
         array_pop($this->overrideParameters);
@@ -178,15 +187,82 @@ class Container implements ContainerInterface
             return new $concrete();
         }
 
-        // Get parameters of constructor
-        $parameters   = $constructor->getParameters();
-        $dependencies = $this->resolveDependencies($parameters);
+        // Get dependencies of constructor
+        $dependencies = $this->getMethodDependencies($constructor);
 
         try {
             return $reflector->newInstanceArgs($dependencies);
         } catch (ReflectionException $e) {
             throw new BindingResolutionException("Cannot instantiate");
         }
+    }
+
+    /**
+     * Inject dependencies of method and execute it
+     *
+     * @param array|string $instance
+     * @param array        $parameters
+     *
+     * @return mixed
+     * @throws BindingResolutionException
+     */
+    public function call($instance, array $parameters = [])
+    {
+        $className = $methodName = null;
+
+        if (is_string($instance)) {
+            $defaultMethodName = method_exists($instance, '__invoke') ? '__invoke' : null;
+            $segments          = explode('@', $instance);
+            [$className, $methodName] = [$segments[0], $segments[1] ?? $defaultMethodName];
+
+            if (is_null($methodName)) {
+                throw new InvalidArgumentException('Method is not provided');
+            }
+        }
+
+        if (is_array($instance)) {
+            if (count($instance) === 0) {
+                throw new InvalidArgumentException('Class is not provided');
+            }
+
+            $className         = is_string($instance[0]) ? $instance[0] : get_class($instance[0]);
+            $defaultMethodName = method_exists($className, '__invoke') ? '__invoke' : null;
+            $methodName        = $instance[1] ?? $defaultMethodName;
+
+            if (is_null($methodName)) {
+                throw new InvalidArgumentException('Method is not provided');
+            }
+        }
+
+        if (is_null($className) || is_null($methodName)) {
+            throw new InvalidArgumentException('Invalid class name or method name');
+        }
+
+        $object = $this->make($className);
+        try {
+            $method = new ReflectionMethod($object, $methodName);
+
+            $this->overrideParameters[] = $parameters;
+            $dependencies               = $this->getMethodDependencies($method);
+            array_pop($this->overrideParameters);
+
+            return $method->invokeArgs($object, $dependencies);
+        } catch (ReflectionException $e) {
+            throw new BindingResolutionException('Cannot call method:' . $methodName . ' on class:' . $className);
+        }
+    }
+
+    /**
+     * @param ReflectionMethod $method
+     *
+     * @return array
+     * @throws BindingResolutionException
+     */
+    private function getMethodDependencies(ReflectionMethod $method): array
+    {
+        $parameters = $method->getParameters();
+
+        return $this->resolveDependencies($parameters);
     }
 
     /**
