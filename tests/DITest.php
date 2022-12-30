@@ -2,21 +2,21 @@
 
 namespace Chaungoclong\Container\Tests;
 
-use Chaungoclong\Container\Container;
-use Chaungoclong\Container\Exceptions\BindingResolutionException;
+use Chaungoclong\Container\DependencyException;
+use Chaungoclong\Container\DI;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
 
-class ContainerTest extends TestCase
+class DITest extends TestCase
 {
-    public Container $container;
+    public DI $container;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->container = Container::getInstance();
+        $this->container = new DI();
     }
 
     /**
@@ -26,7 +26,7 @@ class ContainerTest extends TestCase
     {
         $className = $this->container->call(
             [MysqlConnection::class, 'test'],
-            ['configuration' => $this->container->make(MysqlConfiguration::class)]
+            ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
         $this->assertSame(MysqlConfiguration::class, $className);
 
@@ -35,78 +35,66 @@ class ContainerTest extends TestCase
                 'Chaungoclong\Container\Tests\MysqlConnection',
                 'testStatic'
             ],
-            ['configuration' => $this->container->make(MysqlConfiguration::class)]
+            ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
         $this->assertSame(MysqlConfiguration::class, $className);
 
         $className = $this->container->call(
             [MysqlConnection::class, 'testPrivate'],
-            ['configuration' => $this->container->make(MysqlConfiguration::class)]
+            ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
         $this->assertSame(MysqlConfiguration::class, $className);
     }
 
-    public function testInstanceOfContainerIsSingleton(): void
-    {
-        $container1 = Container::getInstance();
-        $container2 = Container::getInstance();
-        $this->assertSame($container1, $container2);
-    }
-
-    public function testCannotCreateNewInstanceOfContainerWithConstructor(): void
-    {
-        $this->expectError();
-        new Container();
-    }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanResolveInstanceOfClass(): void
     {
         $this->container->bind(MysqlConnection::class, MysqlConnection::class);
-        $connection = $this->container->make(MysqlConnection::class);
+        $connection = $this->container->resolve(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection);
 
         $this->container->bind(SqlConnection::class, SqlConnection::class);
-        $connection = $this->container->make(SqlConnection::class, ['dsn' => 'sql']);
+        $connection = $this->container->resolve(SqlConnection::class, ['dsn' => 'sql']);
         $this->assertInstanceOf(SqlConnection::class, $connection);
 
-        $connection1 = $this->container->make(MysqlConnection::class);
-        $connection2 = $this->container->make(MysqlConnection::class);
+        $connection1 = $this->container->resolve(MysqlConnection::class);
+        $connection2 = $this->container->resolve(MysqlConnection::class);
         $this->assertNotSame($connection1, $connection2);
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanResolveInstanceOfClassWithoutBinding(): void
     {
-        $connection1 = $this->container->make(MysqlConnection::class);
-        $connection2 = $this->container->make(MysqlConnection::class);
+        $connection1 = $this->container->resolve(MysqlConnection::class);
+        $connection2 = $this->container->resolve(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection1);
         $this->assertInstanceOf(MysqlConnection::class, $connection2);
         $this->assertNotSame($connection1, $connection2);
 
-        $connection3 = $this->container->make(SqlConnection::class, ['dsn' => 'sql']);
-        $connection4 = $this->container->make(SqlConnection::class, ['dsn' => 'sql']);
+        $connection3 = $this->container->resolve(SqlConnection::class, ['dsn' => 'sql']);
+        $connection4 = $this->container->resolve(SqlConnection::class, ['dsn' => 'sql']);
         $this->assertInstanceOf(SqlConnection::class, $connection3);
         $this->assertInstanceOf(SqlConnection::class, $connection4);
         $this->assertNotSame($connection1, $connection2);
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanBindInterfaceToConcreteClass(): void
     {
         $this->container->bind(Connection::class, MysqlConnection::class);
-        $connection = $this->container->make(Connection::class);
+        $connection = $this->container->resolve(Connection::class);
         $this->assertInstanceOf(Connection::class, $connection);
         $this->assertInstanceOf(MysqlConnection::class, $connection);
 
         $this->container->bind(Connection::class, SqlConnection::class);
-        $connection = $this->container->make(SqlConnection::class, ['dsn' => 'sql']);
+        $connection = $this->container->resolve(SqlConnection::class, ['dsn' => 'sql']);
         $this->assertInstanceOf(Connection::class, $connection);
         $this->assertInstanceOf(SqlConnection::class, $connection);
 
@@ -114,66 +102,66 @@ class ContainerTest extends TestCase
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanResolveInstanceRecursively(): void
     {
         $this->container->bind(Connection::class, AbstractConnection::class);
         $this->container->bind(AbstractConnection::class, MysqlConnection::class);
-        $connection = $this->container->make(Connection::class);
+        $connection = $this->container->resolve(Connection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection);
         $this->assertInstanceOf(AbstractConnection::class, $connection);
         $this->assertInstanceOf(Connection::class, $connection);
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanUseStringAsAbstract(): void
     {
         $this->container->bind('connection', MysqlConnection::class);
-        $connection = $this->container->make('connection');
+        $connection = $this->container->resolve('connection');
         $this->assertInstanceOf(MysqlConnection::class, $connection);
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanResolveInstanceWithConcreteIsClosure(): void
     {
         $this->container->singleton(MysqlConnection::class, function () {
-            return $this->container->make(MysqlConfiguration::class);
+            return $this->container->resolve(MysqlConfiguration::class);
         });
-        $connection1 = $this->container->make(MysqlConnection::class);
-        $connection2 = $this->container->make(MysqlConnection::class);
+        $connection1 = $this->container->resolve(MysqlConnection::class);
+        $connection2 = $this->container->resolve(MysqlConnection::class);
         $this->assertNotInstanceOf(MysqlConnection::class, $connection1);
         $this->assertNotInstanceOf(MysqlConnection::class, $connection2);
         $this->assertSame($connection1, $connection2);
         $this->assertInstanceOf(MysqlConfiguration::class, $connection1);
 
         $this->container->bind(Connection::class, function () {
-            return $this->container->make(SqlConnection::class, ['dsn' => 'sql']);
+            return $this->container->resolve(SqlConnection::class, ['dsn' => 'sql']);
         });
-        $connection3 = $this->container->make(Connection::class);
+        $connection3 = $this->container->resolve(Connection::class);
         $this->assertInstanceOf(SqlConnection::class, $connection3);
         $this->assertInstanceOf(Connection::class, $connection3);
     }
 
     /**
-     * @throws BindingResolutionException
+     * @throws DependencyException
      */
     public function testCanResolveSingletonInstanceOfClass(): void
     {
         $this->container->singleton(MysqlConnection::class);
-        $connection1 = $this->container->make(MysqlConnection::class);
-        $connection2 = $this->container->make(MysqlConnection::class);
+        $connection1 = $this->container->resolve(MysqlConnection::class);
+        $connection2 = $this->container->resolve(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection1);
         $this->assertInstanceOf(MysqlConnection::class, $connection2);
         $this->assertSame($connection1, $connection2);
 
         $this->container->singleton(Connection::class, MysqlConnection::class);
-        $connection3 = $this->container->make(Connection::class);
-        $connection4 = $this->container->make(Connection::class);
+        $connection3 = $this->container->resolve(Connection::class);
+        $connection4 = $this->container->resolve(Connection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection1);
         $this->assertInstanceOf(MysqlConnection::class, $connection2);
         $this->assertInstanceOf(Connection::class, $connection1);
@@ -181,8 +169,8 @@ class ContainerTest extends TestCase
         $this->assertSame($connection3, $connection4);
 
         $this->container->instance(MysqlConnection::class, MysqlConnection::class);
-        $connection5 = $this->container->make(MysqlConnection::class);
-        $connection6 = $this->container->make(MysqlConnection::class);
+        $connection5 = $this->container->resolve(MysqlConnection::class);
+        $connection6 = $this->container->resolve(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection5);
         $this->assertInstanceOf(MysqlConnection::class, $connection6);
         $this->assertSame($connection5, $connection6);
@@ -214,7 +202,7 @@ class ContainerTest extends TestCase
         $connection = $this->container->get(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection);
 
-        $this->expectException(NotFoundExceptionInterface::class);
+        $this->expectException(ContainerExceptionInterface::class);
         $this->container->get('abc');
 
         $this->container->bind('connection', MysqlConnection::class);
@@ -232,7 +220,7 @@ class ContainerTest extends TestCase
     {
         parent::tearDown();
 
-        $this->container->flush();
+        $this->container = new DI();
     }
 }
 
