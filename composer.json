@@ -1,6 +1,6 @@
 {
   "name": "chaungoclong/php-container",
-  "description": "Simple PHP service container",
+  "description": "Simple DI container for PHP",
   "type": "library",
   "license": "MIT",
   "autoload": {
