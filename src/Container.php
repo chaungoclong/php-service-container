@@ -2,6 +2,8 @@
 
 namespace Chaungoclong\Container;
 
+use Chaungoclong\Container\Exceptions\DependencyResolutionException;
+use Chaungoclong\Container\Exceptions\EntryNotFoundException;
 use Closure;
 use InvalidArgumentException;
 use Psr\Container\ContainerInterface;
@@ -11,7 +13,7 @@ use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionParameter;
 
-class DI implements ContainerInterface
+class Container implements ContainerInterface
 {
     /**
      * @var array The dependency's bindings.
@@ -37,6 +39,34 @@ class DI implements ContainerInterface
     }
 
     /**
+     * Bind abstract with instance
+     *
+     * @param string $abstract
+     * @param mixed  $instance
+     *
+     * @return void
+     */
+    public function instance(string $abstract, $instance): void
+    {
+        if (is_object($instance)) {
+            $this->instances[$abstract] = $instance;
+        } else {
+            $this->singleton($abstract, $instance);
+        }
+    }
+
+    /**
+     * @param string $abstract
+     * @param        $concrete
+     *
+     * @return void
+     */
+    public function singleton(string $abstract, $concrete = null): void
+    {
+        $this->bind($abstract, $concrete, true);
+    }
+
+    /**
      * @param string              $abstract
      * @param Closure|string|null $concrete
      * @param bool                $singleton
@@ -56,30 +86,64 @@ class DI implements ContainerInterface
     }
 
     /**
-     * @param string $abstract
-     * @param        $concrete
+     * Inject dependencies of method and execute it
      *
-     * @return void
+     * @param array|string $callback
+     * @param array        $overrideParameters
+     *
+     * @return mixed
+     * @throws DependencyResolutionException
      */
-    public function singleton(string $abstract, $concrete = null)
+    public function call($callback, array $overrideParameters = [])
     {
-        $this->bind($abstract, $concrete, true);
-    }
+        $className         = $methodName = null;
+        $defaultMethodName = '__invoke';
 
-    /**
-     * Bind abstract with instance
-     *
-     * @param string $abstract
-     * @param mixed  $instance
-     *
-     * @return void
-     */
-    public function instance(string $abstract, $instance): void
-    {
-        if (is_object($instance)) {
-            $this->instances[$abstract] = $instance;
-        } else {
-            $this->singleton($abstract, $instance);
+        if (is_string($callback)) {
+            $segments  = explode('@', $callback);
+            $className = $segments[0];
+            if (count($segments) === 1 && !method_exists($className, $defaultMethodName)) {
+                throw new InvalidArgumentException("Method not provided");
+            }
+            $methodName = $segments[1] ?? $defaultMethodName;
+        }
+
+        if (is_array($callback)) {
+            $countCallback = count($callback);
+
+            if ($countCallback === 0) {
+                throw new InvalidArgumentException("Class not provided");
+            }
+
+            if (!is_string($callback[0]) && !is_object($callback[0])) {
+                throw new InvalidArgumentException("Class must be string or object");
+            }
+
+            $className = is_object($callback[0]) ? get_class((object)$callback[0]) : $callback[0];
+
+            if ($countCallback === 1 && !method_exists($className, $defaultMethodName)) {
+                throw new InvalidArgumentException("Method not provided");
+            }
+
+            if (isset($callback[1]) && !is_string($callback[1])) {
+                throw new InvalidArgumentException("Method must be string");
+            }
+
+            $methodName = $callback[1] ?? $defaultMethodName;
+        }
+
+        if (is_null($className) && is_null($methodName)) {
+            throw new InvalidArgumentException("Class or method not provided");
+        }
+
+        $object = $this->resolve($className);
+
+        try {
+            $method       = new ReflectionMethod($object, $methodName);
+            $dependencies = $this->resolveMethodDependencies($method, $overrideParameters);
+            return $method->invokeArgs($object, $dependencies);
+        } catch (ReflectionException $e) {
+            throw new DependencyResolutionException($e->getMessage(), 0, $e);
         }
     }
 
@@ -88,7 +152,7 @@ class DI implements ContainerInterface
      * @param array  $overrideParameters
      *
      * @return object
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function resolve(string $abstract, array $overrideParameters = []): object
     {
@@ -125,7 +189,7 @@ class DI implements ContainerInterface
      * @param array          $overrideParameters
      *
      * @return object
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     protected function build($concrete, array $overrideParameters = []): object
     {
@@ -140,11 +204,11 @@ class DI implements ContainerInterface
         try {
             $reflector = new ReflectionClass($concrete);
         } catch (ReflectionException $e) {
-            throw new DependencyException($e->getMessage(), 0, $e);
+            throw new DependencyResolutionException("Target class [$concrete] does not exist", 0, $e);
         }
 
         if (!$reflector->isInstantiable()) {
-            throw new DependencyException('Cannot instant', 0);
+            throw new DependencyResolutionException("Target class [$concrete] is not instantiable");
         }
 
         $constructor = $reflector->getConstructor();
@@ -161,11 +225,25 @@ class DI implements ContainerInterface
     }
 
     /**
+     * @param ReflectionMethod $method
+     * @param array            $overrideParameters
+     *
+     * @return array
+     * @throws DependencyResolutionException
+     */
+    private function resolveMethodDependencies(ReflectionMethod $method, array $overrideParameters = []): array
+    {
+        $parameters = $method->getParameters();
+
+        return $this->resolveDependencies($parameters, $overrideParameters);
+    }
+
+    /**
      * @param ReflectionParameter[] $parameters
      * @param array                 $overrideParameters
      *
      * @return array
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     protected function resolveDependencies(array $parameters, array $overrideParameters = []): array
     {
@@ -185,7 +263,11 @@ class DI implements ContainerInterface
             $type = $parameter->getType();
 
             if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
-                throw new DependencyException('Cannot resolve parameter: ' . $parameter->name, 0);
+                $message = "Unresolvable dependency resolving [$parameter]";
+                if ($parameter->getDeclaringClass() !== null) {
+                    $message .= " in class {$parameter->getDeclaringClass()->getName()}";
+                }
+                throw new DependencyResolutionException($message);
             }
 
             $className = $type->getName();
@@ -203,84 +285,18 @@ class DI implements ContainerInterface
     }
 
     /**
-     * Inject dependencies of method and execute it
-     *
-     * @param array|string $instance
-     * @param array        $overrideParameters
-     *
-     * @return mixed
-     * @throws DependencyException
-     */
-    public function call($instance, array $overrideParameters = [])
-    {
-        $className = $methodName = null;
-
-        if (is_string($instance)) {
-            $defaultMethodName = method_exists($instance, '__invoke') ? '__invoke' : null;
-            $segments          = explode('@', $instance);
-            [$className, $methodName] = [$segments[0], $segments[1] ?? $defaultMethodName];
-
-            if (is_null($methodName)) {
-                throw new InvalidArgumentException('Method is not provided');
-            }
-        }
-
-        if (is_array($instance)) {
-            if (count($instance) === 0) {
-                throw new InvalidArgumentException('Class is not provided');
-            }
-
-            $className         = is_string($instance[0]) ? $instance[0] : get_class($instance[0]);
-            $defaultMethodName = method_exists($className, '__invoke') ? '__invoke' : null;
-            $methodName        = $instance[1] ?? $defaultMethodName;
-
-            if (is_null($methodName)) {
-                throw new InvalidArgumentException('Method is not provided');
-            }
-        }
-
-        if (is_null($className) || is_null($methodName)) {
-            throw new InvalidArgumentException('Invalid class name or method name');
-        }
-
-        $object = $this->resolve($className);
-        try {
-            $method       = new ReflectionMethod($object, $methodName);
-            $dependencies = $this->resolveMethodDependencies($method, $overrideParameters);
-
-            return $method->invokeArgs($object, $dependencies);
-        } catch (ReflectionException $e) {
-            throw new DependencyException('Cannot call method:' . $methodName . ' on class:' . $className);
-        }
-    }
-
-    /**
-     * @param ReflectionMethod $method
-     * @param array            $overrideParameters
-     *
-     * @return array
-     * @throws DependencyException
-     */
-    private function resolveMethodDependencies(ReflectionMethod $method, array $overrideParameters = []): array
-    {
-        $parameters = $method->getParameters();
-
-        return $this->resolveDependencies($parameters, $overrideParameters);
-    }
-
-    /**
      * @inheritDoc
      */
     public function get(string $id)
     {
         try {
             return $this->resolve($id);
-        } catch (DependencyException $e) {
+        } catch (DependencyResolutionException $e) {
             if ($this->has($id)) {
                 throw $e;
             }
 
-            throw new DependencyException('Not found');
+            throw new EntryNotFoundException($id, is_int($e->getCode()) ? $e->getCode() : 0, $e);
         }
     }
 

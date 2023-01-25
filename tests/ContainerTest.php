@@ -2,21 +2,21 @@
 
 namespace Chaungoclong\Container\Tests;
 
-use Chaungoclong\Container\DependencyException;
-use Chaungoclong\Container\DI;
+use Chaungoclong\Container\Container;
+use Chaungoclong\Container\Exceptions\DependencyResolutionException;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\NotFoundExceptionInterface;
 
-class DITest extends TestCase
+class ContainerTest extends TestCase
 {
-    public DI $container;
+    public Container $container;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->container = new DI();
+        $this->container = new Container();
     }
 
     /**
@@ -24,31 +24,48 @@ class DITest extends TestCase
      */
     public function testCanCallClassMethodWithoutCreateInstanceOfClass(): void
     {
-        $className = $this->container->call(
+        // Non-static method call
+        $className1 = $this->container->call(
             [MysqlConnection::class, 'test'],
             ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
-        $this->assertSame(MysqlConfiguration::class, $className);
+        $this->assertSame(MysqlConfiguration::class, $className1);
 
-        $className = $this->container->call(
+        // Static method call
+        $className2 = $this->container->call(
             [
                 'Chaungoclong\Container\Tests\MysqlConnection',
                 'testStatic'
             ],
             ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
-        $this->assertSame(MysqlConfiguration::class, $className);
+        $this->assertSame(MysqlConfiguration::class, $className2);
 
-        $className = $this->container->call(
+        // Private method call
+        $className3 = $this->container->call(
             [MysqlConnection::class, 'testPrivate'],
             ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
         );
-        $this->assertSame(MysqlConfiguration::class, $className);
+        $this->assertSame(MysqlConfiguration::class, $className3);
+
+        // Invoke method call
+        $className4 = $this->container->call(
+            [MysqlConnection::class],
+            ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
+        );
+        $this->assertSame(MysqlConfiguration::class, $className4);
+
+        // Invoke method call with object
+        $className4 = $this->container->call(
+            [$this->container->resolve(MysqlConnection::class)],
+            ['configuration' => $this->container->resolve(MysqlConfiguration::class)]
+        );
+        $this->assertSame(MysqlConfiguration::class, $className4);
     }
 
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanResolveInstanceOfClass(): void
     {
@@ -66,7 +83,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanResolveInstanceOfClassWithoutBinding(): void
     {
@@ -84,7 +101,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanBindInterfaceToConcreteClass(): void
     {
@@ -102,7 +119,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanResolveInstanceRecursively(): void
     {
@@ -115,7 +132,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanUseStringAsAbstract(): void
     {
@@ -125,7 +142,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanResolveInstanceWithConcreteIsClosure(): void
     {
@@ -148,7 +165,7 @@ class DITest extends TestCase
     }
 
     /**
-     * @throws DependencyException
+     * @throws DependencyResolutionException
      */
     public function testCanResolveSingletonInstanceOfClass(): void
     {
@@ -199,28 +216,31 @@ class DITest extends TestCase
      */
     public function testImplementPsr11(): void
     {
+        // Can get dependency instance with get() method
         $connection = $this->container->get(MysqlConnection::class);
         $this->assertInstanceOf(MysqlConnection::class, $connection);
 
-        $this->expectException(ContainerExceptionInterface::class);
+        // Expect exception [NotFoundExceptionInterface] if dependency is not found(not defined)
+        $this->expectException(NotFoundExceptionInterface::class);
         $this->container->get('abc');
 
+        // Can check if dependency is defined with has() method
         $this->container->bind('connection', MysqlConnection::class);
         $connection = $this->container->get('connection');
         $this->assertInstanceOf(MysqlConnection::class, $connection);
         $this->assertTrue($this->container->has('connection'));
 
+        // Expect exception [ContainerExceptionInterface] if dependency can not resolve(defined)
         $this->container->bind('connection', 'abc');
-        $this->assertTrue($this->container->has('abc'));
         $this->expectException(ContainerExceptionInterface::class);
-        $this->container->get('abc');
+        $this->container->get('connection');//        $this->container->get('abc');
     }
 
     protected function tearDown(): void
     {
         parent::tearDown();
 
-        $this->container = new DI();
+        $this->container = new Container();
     }
 }
 
@@ -239,6 +259,11 @@ class MysqlConnection extends AbstractConnection
     public function __construct(MysqlConfiguration $configuration)
     {
         $this->configuration = $configuration;
+    }
+
+    public function __invoke(MysqlConfiguration $configuration): string
+    {
+        return get_class($configuration);
     }
 
     public function connect(): void
